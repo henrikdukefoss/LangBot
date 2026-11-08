@@ -252,6 +252,9 @@ class AgentRunOrchestrator:
         assistant_transcript_written = False
         terminal_status: str | None = None
         terminal_reason: str | None = None
+        # Latest usage any result carried, not only a terminal one: a cancel,
+        # timeout, or broken stream must not drop usage already spent. Snapshots
+        # are cumulative, so replacing (never summing) keeps replays idempotent.
         terminal_usage: dict[str, typing.Any] | None = None
         execution_outcome = 'unknown'
         execution_error = ''
@@ -451,6 +454,10 @@ class AgentRunOrchestrator:
                             await self.result_normalizer.normalize(result_dict, descriptor)
                             continue
 
+                        result_usage = result_dict.get('usage')
+                        if isinstance(result_usage, dict) and result_usage:
+                            terminal_usage = result_usage
+
                         if result_type == 'run.completed':
                             terminal_status = 'completed'
                             terminal_reason = (
@@ -458,16 +465,10 @@ class AgentRunOrchestrator:
                                 if isinstance(result_dict.get('data'), dict)
                                 else None
                             )
-                            usage = result_dict.get('usage')
-                            if isinstance(usage, dict):
-                                terminal_usage = usage
                         elif result_type == 'run.failed':
                             data = result_dict.get('data') if isinstance(result_dict.get('data'), dict) else {}
                             terminal_status = 'cancelled' if data.get('code') == 'cancelled' else 'failed'
                             terminal_reason = data.get('error') or data.get('code')
-                            usage = result_dict.get('usage')
-                            if isinstance(usage, dict):
-                                terminal_usage = usage
 
                         has_completed_message = result_type == 'message.completed' or (
                             result_type == 'run.completed'
